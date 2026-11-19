@@ -1,0 +1,2 @@
+import {api} from './client.js';
+export const migrationApi={status:()=>api('/migration'),backfill:limit=>api('/migration/backfill?limit='+limit,'POST',{}),verify:()=>api('/migration/verify','POST',{}),switch:()=>api('/migration/switch','POST',{}),rollback:()=>api('/migration/rollback','POST',{}),resume:()=>api('/migration/resume','POST',{}),members:attribute=>api('/dependencies/members'+(attribute?'?attribute='+encodeURIComponent(attribute):''))};

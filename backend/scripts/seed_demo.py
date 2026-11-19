@@ -1,6 +1,7 @@
 from sqlalchemy import select,func
 from src.config.database import Session,Base,engine
-from src.models.entities import User,Relation,Dependency,Report
+from src.models.entities import User,Relation,Dependency,Report,DependencyMember
+from src.services import members as member_service
 from src.utils.security import password_hash
 
 def seed():
@@ -15,6 +16,9 @@ def seed():
             if rel:continue
             rel=Relation(code=code,title=title,attributes=attrs,note='南麓材料实验室 · 09:15 委托表复核');db.add(rel);db.flush()
             for lhs,rhs in fds:db.add(Dependency(relation_id=rel.id,lhs=lhs,rhs=rhs,note='业务确认依赖'))
+            db.flush()
+            for dependency in db.scalars(select(Dependency).where(Dependency.relation_id==rel.id)):
+                member_service.sync(db,dependency)
         db.commit()
-        print({cls.__tablename__:db.scalar(select(func.count()).select_from(cls)) for cls in (User,Relation,Dependency,Report)})
+        print({cls.__tablename__:db.scalar(select(func.count()).select_from(cls)) for cls in (User,Relation,Dependency,DependencyMember,Report)})
 if __name__=='__main__':seed()

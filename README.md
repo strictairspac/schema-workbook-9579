@@ -44,17 +44,31 @@ Python真算，MySQL保存草案/依赖与结果，Redis传递任务，独立wor
 
 这是小型关系模型设计辅助工具，FD由人工提供，不能从脏数据自动推断业务规则；不连接生产数据或自动执行DDL。精确投影在10属性内有界，仍可能随依赖复杂度增加耗时。单worker串行队列，不带生产任务重试/崩溃续跑。
 
+## 依赖成员行迁移
+
+函数依赖原先以 JSON 数组存两侧属性。迁移把每条规则拆成可按属性查找的成员行（`dependency_members`，每行一个属性、标明决定项/被决定项），规则本身仍保留旧列。
+
+- **双写**：新建或修改依赖时，规则两侧与成员行在同一事务、同一次编辑中写入，任何一步失败整体回滚；同一规则的成员行共享内容摘要 `edit_token`，核对会拒绝两侧来自不同编辑的成员。
+- **空决定项**：左侧为空时不产生决定项成员，但被决定项成员照常存在，规则仍可完整重建。
+- **回填**：从 `migration_state.cursor` 起分批复制旧规则，逐条提交后才推进游标；已匹配的规则跳过，因此中断后可从原进度续跑，重复执行不会重复落成员。回填逐条加行锁，旧版编辑要么先落库、要么等复制完成。
+- **核对**：只读比较每条规则与其成员行（缺失、多余、顺序、摘要、所属关系），不锁旧编辑器，核对期间旧版仍可改规则。
+- **切换**：核对一致后管理员才能切换；切换只改变读取路径，新受理的分解报告才从成员行重建依赖，此前报告继续用入队时冻结的快照。核对不一致时切换返回 409，报告入队也会拒绝成员行不完整的草案。
+- **回退**：管理员可回退到旧读法，报告改读旧依赖列；由于双写，切换后修改过的规则在旧列里仍是最新值。
+- **页面**：侧栏与「迁移状态」页显示迁移中 / 已切换 / 已回退，并提供回填、核对、切换、回退、续跑与按属性查询成员行。
+
+接口：`GET /migration`、`POST /migration/backfill?limit=50`、`POST /migration/verify`、`POST /migration/switch`、`POST /migration/rollback`、`POST /migration/resume`、`GET /dependencies/members?attribute=…&side=…&relation_id=…`。回填/续跑需写入角色，切换/回退需管理员。测试：`cd backend && python -m pytest tests`。
+
 ## 工程结构
 
 |服务|技术|职责|
 |---|---|---|
-|frontend|原生HTML/CSS/JS + Nginx|4业务页、登录、共享业务表格与报告组件|
+|frontend|原生HTML/CSS/JS + Nginx|4业务页、登录、迁移状态页、共享业务表格与报告组件|
 |backend|Python3.11/FastAPI/SQLAlchemy/PyJWT|校验、权限、审计、快照与导出|
 |worker|Python3.11|闭包、候选键、3NF与chase|
 |db|MySQL8.0|JSON属性与依赖、任务报告|
 |redis|Redis7|持久任务队列|
 
-目录：`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`；`backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}`；`backend/scripts/seed_demo.py`；`backend/migrations/001_initial.sql`。每核心实体贯穿模型/schema/service/route/API/store/page。组件table/badge/frame复用，hooks/session/feedback和utils/forms/html共用；request_id/errors双后端中间件。
+目录：`frontend/src/{api,stores,types,components/common,hooks,pages,router,utils,constants}`；`backend/src/{routes,controllers,services,models,schemas,middlewares,utils,constants,config}`；`backend/scripts/seed_demo.py`；`backend/migrations/001_initial.sql`；`backend/tests`。每核心实体贯穿模型/schema/service/route/API/store/page。组件table/badge/frame复用，hooks/session/feedback和utils/forms/html共用；request_id/errors双后端中间件。成员行迁移横跨`services/members.py`、`services/migration.py`与`routes/migration.py`。
 
 枚举：角色admin/operator/viewer、任务queued/running/completed/failed；前后端定义位于 `backend/src/constants/enums.py` 和 `frontend/src/constants/enums.js`，security/reports、frame/badge消费；worker持久化状态。
 

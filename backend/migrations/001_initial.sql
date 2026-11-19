@@ -1,3 +1,11 @@
 -- Initial schema is applied idempotently by SQLAlchemy metadata.create_all.
--- Authoritative models: src/models/entities.py (relations, dependencies, reports,
--- audit_logs and users). Dependencies/report snapshots are persisted as MySQL JSON.
+-- Authoritative models: src/models/entities.py (relations, dependencies,
+-- dependency_members, migration_state, reports, audit_logs and users).
+-- Dependencies/report snapshots are persisted as MySQL JSON.
+--
+-- Member migration: dependency rules keep their JSON lhs/rhs columns and are
+-- dual-written to dependency_members (one row per side/attribute, sharing an
+-- edit_token per rule). migration_state is a one-row-per-name state machine
+-- (migrating → switched → rolled_back) that gates member-row reads by reports.
+-- create_all adds the new tables on an existing database; the legacy columns
+-- are neither dropped nor rewritten, so rollback needs no data change.
